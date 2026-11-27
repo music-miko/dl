@@ -15,7 +15,6 @@ from pyrogram.types import (
 )
 
 from .. import LOGGER
-from ..core.clones import clones
 from ..core.mongo import mongo
 from ..locale import default_lang, language_names, supported_langs, text
 from .classifier import classifier
@@ -26,6 +25,7 @@ class KeyboardBuilder:
     def __init__(self):
         self.playlist_page_size = 8
         self.updates_channel_url = "https://t.me/ArcUpdates"
+        self.updates_channel_username = "@" + self.updates_channel_url.rstrip("/").rsplit("/", 1)[-1]
 
     def updates_channel_row(self, lang: str = default_lang) -> list[InlineKeyboardButton]:
         return [InlineKeyboardButton(text("btn_updates_channel", lang), url=self.updates_channel_url)]
@@ -78,38 +78,25 @@ class KeyboardBuilder:
         return InlineKeyboardMarkup(rows)
 
     def start_keyboard(self, bot_username: str, lang: str = default_lang, *, is_main: bool = False) -> InlineKeyboardMarkup:
-        rows = [[InlineKeyboardButton(
+        row = [InlineKeyboardButton(
             text("btn_add_to_group", lang),
             url=f"https://t.me/{bot_username}?startgroup=true",
             style=ButtonStyle.PRIMARY,
-        )]]
-
+        )]
         if is_main:
-            rows.append([
-                InlineKeyboardButton(
-                    text("btn_try_inline", lang), switch_inline_query_current_chat="", style=ButtonStyle.SUCCESS,
-                ),
-                InlineKeyboardButton(
-                    text("btn_clone_this_bot", lang), callback_data="start:clone", style=ButtonStyle.SUCCESS,
-                ),
-            ])
+            row.append(InlineKeyboardButton(
+                text("btn_try_inline", lang), switch_inline_query_current_chat="", style=ButtonStyle.SUCCESS,
+            ))
+        return InlineKeyboardMarkup([row])
 
-        rows.append([
-            InlineKeyboardButton(text("btn_language", lang), callback_data="start:lang"),
-            InlineKeyboardButton(text("btn_updates_channel", lang), url=self.updates_channel_url),
-        ])
+    def spotify_results_keyboard(self, entries: list[tuple[str, dict]]) -> InlineKeyboardMarkup:
+        rows = []
+        for token, meta in entries:
+            title = meta.get("title") or "Untitled"
+            artist = meta.get("artist")
+            label = truncate(f"{title} - {artist}" if artist else title, 48)
+            rows.append([InlineKeyboardButton(label, callback_data=f"dl:{token}")])
         return InlineKeyboardMarkup(rows)
-
-    def spotify_results_keyboard(self, picks: list[tuple[str, str]], lang: str = default_lang) -> InlineKeyboardMarkup:
-        download_row = [
-            InlineKeyboardButton(f"⬇️ {i}", callback_data=f"dl:{token}", style=ButtonStyle.SUCCESS)
-            for i, (token, _) in enumerate(picks, start=1)
-        ]
-        open_row = [
-            InlineKeyboardButton(f"🔗 {i}", url=url)
-            for i, (_, url) in enumerate(picks, start=1)
-        ]
-        return InlineKeyboardMarkup([download_row, open_row])
 
     def lang_keyboard(self) -> InlineKeyboardMarkup:
         rows = []
@@ -128,6 +115,8 @@ keyboards = KeyboardBuilder()
 
 
 def build_clone_list_keyboard(docs: list[dict], lang: str = default_lang) -> InlineKeyboardMarkup:
+    from ..core.clones import clones
+
     rows = []
     for doc in docs:
         bot_id = doc["_id"]

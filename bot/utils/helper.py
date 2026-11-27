@@ -126,7 +126,7 @@ async def user_lang(message: Message, *, touch: bool = False) -> str:
     return await mongo.get_lang(user.id)
 
 
-BOT_COMMANDS = [
+bot_commands = [
     ("start", "Start the bot"),
     ("yt", "Download a YouTube video: /yt <url>"),
     ("spotify", "Search Spotify: /spotify <song name>"),
@@ -137,7 +137,7 @@ BOT_COMMANDS = [
 
 async def publish_commands(client: Client, *, extra: list[tuple[str, str]] | None = None) -> None:
     try:
-        await client.set_bot_commands([BotCommand(c, d) for c, d in [*BOT_COMMANDS, *(extra or [])]])
+        await client.set_bot_commands([BotCommand(c, d) for c, d in [*bot_commands, *(extra or [])]])
     except Exception as e:
         LOGGER.warning("Couldn't set the command menu: %s", e)
 

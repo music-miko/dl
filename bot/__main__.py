@@ -43,9 +43,10 @@ async def main() -> None:
         LOGGER.info("Arc Downloader stopped.")
 
 
+def run() -> None:
+    with suppress(KeyboardInterrupt):
+        asyncio.run(main())
+
+
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        pass
+    run()

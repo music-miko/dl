@@ -6,28 +6,20 @@ import contextlib
 import os
 
 from pyrogram import Client
-from pyrogram.errors import AccessTokenExpired, AccessTokenInvalid, Unauthorized
 from pyrogram.types import InputChatPhotoStatic
 
 from .. import LOGGER
 from .client import app
 from .config import config
+from ..utils.errors import describe_error, token_errors
 from .mongo import mongo
-
-TOKEN_ERRORS = (AccessTokenInvalid, AccessTokenExpired, Unauthorized)
-
-
-def describe_error(e: Exception) -> str:
-    code = getattr(e, "ID", None) or getattr(e, "MESSAGE", None)
-    return str(code) if code else f"{type(e).__name__}: {e}"
-
 
 class CloneManager:
     def __init__(self):
         self.active: dict[int, Client] = {}
         self.profile_photo_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
-            "assets", "arcdlbot_profile_icon.png",
+            "assets", "arcdlbot_logo.png",
         )
         self.bot_short_description = (
             "Download music & media from YouTube, Spotify, SoundCloud, Instagram, "
@@ -56,7 +48,7 @@ class CloneManager:
 
         try:
             await self.spinup(bot_id, token, owner_id=owner_id, username=username, persist=False)
-        except TOKEN_ERRORS as e:
+        except token_errors as e:
             return await self._recover_token(doc, label, e)
         except Exception as e:
             LOGGER.error("Clone %s (bot_id=%s) not started: %s", label, bot_id, describe_error(e))

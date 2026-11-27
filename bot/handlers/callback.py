@@ -14,6 +14,8 @@ from ..utils.buttons import keyboards
 from ..utils.helper import cache
 from . import callback_registry as registry
 
+editing: set[tuple[int, int]] = set()
+
 
 @registry.on(CallbackQueryHandler, filters.regex(r"^dl:"))
 async def download_cb(client, callback_query: CallbackQuery):
@@ -25,8 +27,22 @@ async def download_cb(client, callback_query: CallbackQuery):
 
     token = callback_query.data.split(":", 1)[1]
     await callback_query.answer(t("starting_text", lang))
-    status = await callback_query.message.reply_text(t("starting_text", lang))
-    await run_download(client, token, chat_id=callback_query.message.chat.id, status=status, lang=lang)
+
+    message = callback_query.message
+    entry = cache.get(token)
+    if entry and entry.get("in_place"):
+        key = (message.chat.id, message.id)
+        if key in editing:
+            return
+        editing.add(key)
+        try:
+            await run_download(client, token, chat_id=message.chat.id, lang=lang, edit_message=message)
+        finally:
+            editing.discard(key)
+        return
+
+    status = await message.reply_text(t("starting_text", lang))
+    await run_download(client, token, chat_id=message.chat.id, status=status, lang=lang)
 
 
 @registry.on(CallbackQueryHandler, filters.regex(r"^list:"))

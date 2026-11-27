@@ -155,8 +155,9 @@ async def _fail(status, text: str, silent: bool) -> None:
 
 async def run_download(
     client: Client, token: str, *, chat_id: int, status=None, lang: str = default_lang,
-    silent_fail: bool = False,
+    silent_fail: bool = False, edit_message=None,
 ) -> None:
+    status = status or edit_message
     entry = cache.get(token)
     if not entry:
         await status_reporter.update(status, t("expired_text", lang))
@@ -181,7 +182,14 @@ async def run_download(
         await status_reporter.update(status, f"{t('sending_text', lang)} {title}")
 
         media_group = entry.get("media_group")
-        if media_group:
+        if edit_message:
+            await downloader.deliver_by_edit(
+                client, edit_message, cdn_url,
+                title=title, artist=artist, duration=duration,
+                thumbnail_url=thumbnail, platform=platform, lang=lang,
+                as_video=bool(entry.get("is_video")), is_hls=bool(entry.get("hls")),
+            )
+        elif media_group:
             await downloader.deliver_media_group_to_chat(
                 client, chat_id, media_group, caption=title, platform=platform,
             )
@@ -192,7 +200,7 @@ async def run_download(
                 thumbnail_url=thumbnail, platform=platform, lang=lang,
                 as_video=bool(entry.get("is_video")), is_hls=bool(entry.get("hls")),
             )
-        if status:
+        if status and not edit_message:
             await status.delete()
 
     except YTAPIError as e:

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../bot/assets/arcdlbot_profile_icon.png" alt="Arc Downloader" width="120" />
+  <img src="../bot/assets/arcdlbot_logo.png" alt="Arc Downloader" width="120" />
 </p>
 
 # 🚀 Arc Downloader (Part of the [Team Arc](https://telegram.dog/ArcBotz))
@@ -168,7 +168,7 @@ docker run -d --restart unless-stopped --env-file .env -v $(pwd)/downloads:/app/
 
 ```
 bot/
-├── assets/        # profile photo used to brand the main bot and every clone
+├── assets/        # logo used to brand the main bot and every clone
 ├── core/          # client, config, mongo (users, clones, language), clone manager, filesystem setup
 ├── dl/            # Arc API client, download/delivery pipeline, Terabox flow, ffmpeg helpers
 ├── handlers/      # thin Pyrogram entry points only — one file per update type

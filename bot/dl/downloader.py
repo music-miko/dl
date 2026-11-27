@@ -11,12 +11,26 @@ from urllib.parse import urlparse
 
 import aiohttp
 from pyrogram import Client
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import RPCError
-from pyrogram.types import InputMediaAudio, InputMediaDocument, InputMediaPhoto, InputMediaVideo
+from pyrogram.types import (
+    InputMediaAudio,
+    InputMediaDocument,
+    InputMediaPhoto,
+    InputMediaVideo,
+    InputRichBlockAudio,
+    InputRichBlockButtons,
+    InputRichBlockDocument,
+    InputRichBlockPhoto,
+    InputRichBlockVideo,
+    InputRichMessage,
+    RichBlockCaption,
+    RichMessageButton,
+)
 
 from .. import LOGGER
 from ..core.mongo import mongo
-from ..locale import default_lang
+from ..locale import default_lang, text
 from ..utils.buttons import keyboards
 from ..utils.helper import duration_to_seconds, guess_kind_from_ext, sanitize_filename
 from .ffmpeg import download_hls, ensure_audio, probe_video_meta
@@ -253,11 +267,12 @@ class MediaDownloader:
         except Exception:
             return None
 
-    def _build_caption(self, title: str, artist: str = "") -> str:
+    def _build_caption(self, title: str, artist: str = "", credit: bool = False) -> str:
         caption = title or ""
         if artist:
             caption += f"\n{artist}"
-        caption += "\n\n@ArcUpdates"
+        if credit:
+            caption += f"\n\n{keyboards.updates_channel_username}"
         return caption
 
     def looks_like_hls(self, url: str) -> bool:
@@ -345,16 +360,57 @@ class MediaDownloader:
         filename_hint: str | None = None,
         as_video: bool = False,
         is_hls: bool = False,
+        credit: bool = False,
     ) -> tuple[str, str | None, str, str, int, int, int, str, str]:
         thumb_path = os.path.join(self.download_dir, f"{uuid.uuid4().hex[:12]}.jpg")
         file_path, ext, kind, width, height, probed_duration = await self._fetch_and_prepare(
             client, cdn_url, platform, filename_hint, as_video, is_hls
         )
         thumb = await self._download_thumbnail(thumbnail_url, thumb_path) if kind in ("audio", "video") else None
-        caption = self._build_caption(title, artist)
+        caption = self._build_caption(title, artist, credit)
         safe_name = sanitize_filename(title) + ext
         resolved_duration = duration_to_seconds(duration) or probed_duration
         return file_path, thumb, thumb_path, kind, width, height, resolved_duration, caption, safe_name
+
+    async def _send_rich(
+        self, client: Client, chat_id: int, kind: str, file_path: str, thumb: str | None,
+        safe_name: str, title: str, artist: str, duration: int, width: int, height: int,
+        caption: str, lang: str,
+    ):
+        block_caption = RichBlockCaption(text=caption) if caption else None
+
+        if kind == "audio":
+            block = InputRichBlockAudio(
+                InputMediaAudio(
+                    file_path, thumb=thumb, file_name=safe_name,
+                    title=title[:60] if title else None,
+                    performer=artist[:60] if artist else None,
+                    duration=duration,
+                ),
+                caption=block_caption,
+            )
+        elif kind == "video":
+            block = InputRichBlockVideo(
+                InputMediaVideo(
+                    file_path, thumb=thumb, file_name=safe_name,
+                    duration=duration, width=width, height=height, supports_streaming=True,
+                ),
+                caption=block_caption,
+            )
+        elif kind == "photo":
+            block = InputRichBlockPhoto(InputMediaPhoto(file_path), caption=block_caption)
+        else:
+            block = InputRichBlockDocument(InputMediaDocument(file_path, file_name=safe_name), caption=block_caption)
+
+        button = RichMessageButton(
+            text=text("btn_updates_channel", lang),
+            url=keyboards.updates_channel_url,
+            style=ButtonStyle.PRIMARY,
+        )
+        return await client.send_rich_message(
+            chat_id,
+            InputRichMessage(blocks=[block, InputRichBlockButtons([button], align="center")]),
+        )
 
     async def deliver_to_chat(
         self,
@@ -380,33 +436,45 @@ class MediaDownloader:
                 )
             )
 
-            if kind == "audio":
-                sent = await client.send_audio(
-                    chat_id, audio=file_path, file_name=safe_name,
-                    title=title[:60] if title else None,
-                    performer=artist[:60] if artist else None,
-                    duration=resolved_duration,
-                    thumb=thumb, caption=caption,
-                    reply_markup=keyboards.updates_channel_markup(lang),
+            sent = None
+            delivered = False
+            try:
+                sent = await self._send_rich(
+                    client, chat_id, kind, file_path, thumb, safe_name, title, artist,
+                    resolved_duration, width, height, caption, lang,
                 )
-            elif kind == "video":
-                sent = await client.send_video(
-                    chat_id, video=file_path, file_name=safe_name,
-                    duration=resolved_duration,
-                    width=width, height=height,
-                    supports_streaming=True,
-                    thumb=thumb, caption=caption,
-                    reply_markup=keyboards.updates_channel_markup(lang),
-                )
-            elif kind == "photo":
-                sent = await client.send_photo(
-                    chat_id, photo=file_path, caption=caption, reply_markup=keyboards.updates_channel_markup(lang),
-                )
-            else:
-                sent = await client.send_document(
-                    chat_id, document=file_path, file_name=safe_name, caption=caption,
-                    reply_markup=keyboards.updates_channel_markup(lang),
-                )
+                delivered = True
+            except Exception as e:
+                LOGGER.warning("Rich message delivery failed (%s); sending a regular message instead", e)
+
+            if not delivered:
+                if kind == "audio":
+                    sent = await client.send_audio(
+                        chat_id, audio=file_path, file_name=safe_name,
+                        title=title[:60] if title else None,
+                        performer=artist[:60] if artist else None,
+                        duration=resolved_duration,
+                        thumb=thumb, caption=caption,
+                        reply_markup=keyboards.updates_channel_markup(lang),
+                    )
+                elif kind == "video":
+                    sent = await client.send_video(
+                        chat_id, video=file_path, file_name=safe_name,
+                        duration=resolved_duration,
+                        width=width, height=height,
+                        supports_streaming=True,
+                        thumb=thumb, caption=caption,
+                        reply_markup=keyboards.updates_channel_markup(lang),
+                    )
+                elif kind == "photo":
+                    sent = await client.send_photo(
+                        chat_id, photo=file_path, caption=caption, reply_markup=keyboards.updates_channel_markup(lang),
+                    )
+                else:
+                    sent = await client.send_document(
+                        chat_id, document=file_path, file_name=safe_name, caption=caption,
+                        reply_markup=keyboards.updates_channel_markup(lang),
+                    )
 
             await mongo.record_download()
             return sent
@@ -457,6 +525,58 @@ class MediaDownloader:
         finally:
             self._cleanup(*downloaded_paths)
 
+    def _build_input_media(
+        self, kind: str, file_path: str, thumb: str | None, caption: str, safe_name: str,
+        title: str, artist: str, duration: int, width: int, height: int,
+    ):
+        if kind == "audio":
+            return InputMediaAudio(
+                file_path, thumb=thumb, caption=caption, file_name=safe_name,
+                title=title[:60] if title else "",
+                performer=artist[:60] if artist else "",
+                duration=duration,
+            )
+        if kind == "video":
+            return InputMediaVideo(
+                file_path, thumb=thumb, caption=caption, file_name=safe_name,
+                duration=duration, width=width, height=height, supports_streaming=True,
+            )
+        if kind == "photo":
+            return InputMediaPhoto(file_path, caption=caption)
+        return InputMediaDocument(file_path, caption=caption, file_name=safe_name)
+
+    async def deliver_by_edit(
+        self,
+        client: Client,
+        message,
+        cdn_url: str,
+        title: str,
+        artist: str = "",
+        duration=None,
+        thumbnail_url: str | None = None,
+        platform: str = "youtube",
+        lang: str = default_lang,
+        as_video: bool = False,
+        is_hls: bool = False,
+    ) -> None:
+        file_path = thumb_path = None
+        try:
+            file_path, thumb, thumb_path, kind, width, height, resolved_duration, caption, safe_name = (
+                await self._prepare_upload(
+                    client, cdn_url, title, artist, duration, thumbnail_url, platform,
+                    as_video=as_video, is_hls=is_hls,
+                )
+            )
+            media = self._build_input_media(
+                kind, file_path, thumb, caption, safe_name, title, artist, resolved_duration, width, height,
+            )
+            await client.edit_message_media(
+                message.chat.id, message.id, media, reply_markup=keyboards.updates_channel_markup(lang),
+            )
+            await mongo.record_download()
+        finally:
+            self._cleanup(file_path, thumb_path)
+
     async def deliver_to_inline(
         self,
         client: Client,
@@ -475,27 +595,13 @@ class MediaDownloader:
             file_path, thumb, thumb_path, kind, width, height, resolved_duration, caption, safe_name = (
                 await self._prepare_upload(
                     client, cdn_url, title, artist, duration, thumbnail_url, platform,
-                    as_video=as_video, is_hls=is_hls,
+                    as_video=as_video, is_hls=is_hls, credit=True,
                 )
             )
 
-            if kind == "audio":
-                media = InputMediaAudio(
-                    file_path, thumb=thumb, caption=caption, file_name=safe_name,
-                    title=title[:60] if title else "",
-                    performer=artist[:60] if artist else "",
-                    duration=resolved_duration,
-                )
-            elif kind == "video":
-                media = InputMediaVideo(
-                    file_path, thumb=thumb, caption=caption, file_name=safe_name,
-                    duration=resolved_duration, width=width, height=height,
-                    supports_streaming=True,
-                )
-            elif kind == "photo":
-                media = InputMediaPhoto(file_path, caption=caption)
-            else:
-                media = InputMediaDocument(file_path, caption=caption, file_name=safe_name)
+            media = self._build_input_media(
+                kind, file_path, thumb, caption, safe_name, title, artist, resolved_duration, width, height,
+            )
 
             await client.edit_inline_media(inline_message_id, media)
             await mongo.record_download()

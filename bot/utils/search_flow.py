@@ -83,28 +83,21 @@ async def show_spotify_results(message: Message, query: str, lang: str) -> None:
         await message.reply_text(t("no_results_text", lang))
         return
 
-    lines, picks = [], []
-    for i, r in enumerate(results, start=1):
+    picks = []
+    for r in results:
         entry = spotify_track_entry(r)
         if not entry["url"]:
             continue
-        picks.append((cache.put_new(entry), entry["url"]))
-
-        title = entry["title"] or "Untitled"
-        artist = entry["artist"]
-        album = (r.get("album") or {}).get("name")
-        details = " · ".join(x for x in (album, entry["duration"]) if x)
-        lines.append(f"{len(picks)}. {title}" + (f" — {artist}" if artist else "")
-                     + (f"\n    {details}" if details else ""))
+        entry["in_place"] = True
+        picks.append((cache.put_new(entry), {"title": entry["title"], "artist": entry["artist"]}))
 
     if not picks:
         await message.reply_text(t("no_results_text", lang))
         return
 
-    body = t("spotify_results_text", lang, query=truncate(query, 60)) + "\n\n" + "\n".join(lines)
     await message.reply_text(
-        body,
-        reply_markup=keyboards.spotify_results_keyboard(picks, lang),
+        t("spotify_results_text", lang, query=truncate(query, 60)),
+        reply_markup=keyboards.spotify_results_keyboard(picks),
         parse_mode=ParseMode.DISABLED,
     )
 
@@ -294,12 +287,12 @@ def command_input(message: Message) -> tuple[str, list[str]]:
 async def yt_command(client, message: Message, lang: str) -> None:
     arg, extra = command_input(message)
     if not arg:
-        await message.reply_text(t("yt_usage_text", lang), parse_mode=ParseMode.DISABLED)
+        await message.reply_text(t("yt_usage_text", lang), parse_mode=ParseMode.HTML)
         return
 
     kind, value = classifier.classify(arg, extra_urls=extra)
     if kind not in ("youtube_video", "youtube_playlist", "search"):
-        await message.reply_text(t("yt_only_text", lang), parse_mode=ParseMode.DISABLED)
+        await message.reply_text(t("yt_only_text", lang), parse_mode=ParseMode.HTML)
         return
 
     await safe_dispatch(client, message, kind, value, lang, as_video=True)
@@ -308,7 +301,7 @@ async def yt_command(client, message: Message, lang: str) -> None:
 async def spotify_command(client, message: Message, lang: str) -> None:
     arg, extra = command_input(message)
     if not arg:
-        await message.reply_text(t("spotify_usage_text", lang), parse_mode=ParseMode.DISABLED)
+        await message.reply_text(t("spotify_usage_text", lang), parse_mode=ParseMode.HTML)
         return
 
     kind, value = classifier.classify(arg, extra_urls=extra)
@@ -321,4 +314,4 @@ async def spotify_command(client, message: Message, lang: str) -> None:
             LOGGER.exception("Spotify search crashed for %r", value)
             await message.reply_text(t("something_wrong_text", lang, error=e))
     else:
-        await message.reply_text(t("spotify_only_text", lang), parse_mode=ParseMode.DISABLED)
+        await message.reply_text(t("spotify_only_text", lang), parse_mode=ParseMode.HTML)
